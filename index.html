@@ -98,7 +98,7 @@ button:focus-visible{outline:3px solid var(--frost);outline-offset:3px}
   <section class="screen on" id="menu" aria-label="Main menu">
     <div class="menu-inner">
       <h1 class="title">Frost<br>keep</h1>
-      <p class="tagline">Run the ice castle to the beat. One touch, no second chances.</p>
+      <p class="tagline">Run the ice castle to the beat. One touch, five checkpoints.</p>
       <div class="actions">
         <button class="btn btn-go" id="playBtn">Play</button>
         <button class="btn btn-alt" id="practiceBtn">Practice</button>
@@ -110,7 +110,7 @@ button:focus-visible{outline:3px solid var(--frost);outline-offset:3px}
 
   <section class="screen center" id="pause" aria-label="Paused">
     <div class="panel"><h2>Paused</h2><p id="pauseInfo">Take a breath.</p>
-      <div class="actions"><button class="btn btn-go" id="resumeBtn">Resume</button><button class="btn btn-alt" id="restartBtn">Restart</button><button class="btn btn-alt" id="quitBtn">Menu</button></div>
+      <div class="actions"><button class="btn btn-go" id="resumeBtn">Resume</button><button class="btn btn-alt" id="restartBtn">Restart level</button><button class="btn btn-alt" id="quitBtn">Menu</button></div>
     </div>
   </section>
 
@@ -143,15 +143,18 @@ const CORE = (() => {
     const P = (x, y = 0) => add({ t: 'pad', x, y, w: 1, h: 0.3 });
     const O = (x, y) => add({ t: 'orb', x, y, w: 1, h: 1 });
     const GATE = (x, mode, y = 0) => add({ t: 'portal', x, y, w: 1, h: 3, mode });
+    const CP = (x, mode = 'cube', y = 0) => add({ t: 'checkpoint', x, y, w: 1, h: 0, mode });
 
     // A — warm up: single spikes with lots of room
     S(20); S(32); S(44);
     B(54, 0, 4, 1); S(66);
     B(74, 0, 4, 1); B(80, 0, 4, 1);
     S(91); S(101);
+    CP(104);
     SR(110, 2); S(122);
     B(130, 0, 6, 1);
     SR(144, 2);
+    CP(150);
     // B — pads and orbs, one at a time
     P(156); SR(158, 3);
     SR(172, 5); O(173, 2);
@@ -159,16 +162,19 @@ const CORE = (() => {
     P(208); SR(210, 3);
     // C — ship, wide lanes
     GATE(224, 'ship', 0);
+    CP(232, 'ship', 4);
     B(240, 0, 2, 3); B(252, 6, 2, 3); B(264, 0, 2, 3); B(276, 6, 2, 3);
     B(288, 0, 2, 2); B(288, 7, 2, 2);
     B(300, 0, 12, 2); B(300, 7, 12, 2);
     for (let x = 302; x < 312; x += 3) S(x, 2);
     B(320, 0, 2, 3);
     GATE(330, 'cube', 3);
+    CP(336);
     // D — finale: a little more going on
     S(344); SR(354, 2); S(364);
     B(372, 0, 6, 1); SR(382, 2);
     B(392, 0, 3, 2); SR(395, 2); B(397, 0, 3, 2);
+    CP(401);
     SR(408, 6); O(410, 2);
     P(424); SR(426, 3);
     SR(440, 2); S(452); B(460, 0, 4, 1); SR(468, 2);
@@ -185,7 +191,8 @@ const CORE = (() => {
     for (const o of objs) if (o.t === 'portal') {
       if (o.mode === 'ship') start = o.x; else if (start !== null) { zones.push([start, o.x]); start = null; }
     }
-    return { objs, buckets, length, zones };
+    const cps = objs.filter(o => o.t === 'checkpoint');
+    return { objs, buckets, length, zones, cps };
   }
 
   function newState() {
@@ -193,6 +200,11 @@ const CORE = (() => {
       lastOrb: -1, lastPad: -1, events: 0, buf: 0, coy: 0, prevHeld: false };
   }
   function clone(s) { return Object.assign({}, s); }
+  // the fixed state you respawn in at a checkpoint flag
+  function spawnAt(cp) {
+    const s = newState(); s.x = cp.x; s.y = cp.y; s.mode = cp.mode; s.grounded = cp.mode === 'cube' && cp.y === 0;
+    return s;
+  }
 
   // events bitmask: 1 jump, 2 land, 4 orb, 8 pad, 16 ship gate, 32 cube gate, 64 dead, 128 won
   function step(s, held, L) {
@@ -264,7 +276,7 @@ const CORE = (() => {
     if (s.x >= L.length) { s.won = true; s.events |= 128; }
   }
 
-  return { SPEED, G, JUMP, CEIL, DT, buildLevel, newState, clone, step };
+  return { SPEED, G, JUMP, CEIL, DT, buildLevel, newState, clone, spawnAt, step };
 })();
 
 
@@ -350,6 +362,7 @@ const Music = (() => {
       if (kind === 'die') { hiss(t, 0.35, 0.5, 300, master); tone('sawtooth', 320, t, 0.3, 0.25, master, 50, 1800); }
       else if (kind === 'orb') tone('sine', 660, t, 0.14, 0.25, master, 1320);
       else if (kind === 'pad') tone('triangle', 440, t, 0.18, 0.3, master, 990);
+      else if (kind === 'cp') { tone('triangle', 784, t, 0.12, 0.22, master); tone('triangle', 1175, t + 0.09, 0.22, 0.22, master); }
       else if (kind === 'gate') { tone('square', 330, t, 0.25, 0.1, master, 880, 3000); }
       else if (kind === 'win') [0, 4, 7, 12, 16].forEach((n, i) => tone('square', mtof(69 + n), t + i * 0.09, 0.3, 0.12, master, 0, 3500));
     }
@@ -423,7 +436,7 @@ function buildBG() {
 
 // ---------- game state ----------
 let mode = 'menu', practice = false;
-let P = CORE.newState(), held = false, attempt = 0, deadTimer = 0, shake = 0, time = 0;
+let P = CORE.newState(), held = false, attempt = 0, deadTimer = 0, shake = 0, time = 0, freeze = 0, deaths = 0, nextCp = 0;
 let camX = 0, menuCam = 0;
 const vis = { rot: 0, trail: [] };
 let particles = [], snow = [], checkpoints = [], usedOrbs = new Set(), padHits = new Set(), flashGate = 0;
@@ -436,27 +449,29 @@ function show(id) { for (const s of document.querySelectorAll('.screen')) s.clas
 function hideAll() { for (const s of document.querySelectorAll('.screen')) if (s.id !== 'rotate') s.classList.remove('on'); }
 
 function startRun(isPractice) {
-  practice = isPractice; attempt = 0; checkpoints = [];
+  practice = isPractice; attempt = 0; deaths = 0; checkpoints = [];
   $('badge').style.display = practice ? 'flex' : 'none';
   hideAll(); respawn(true);
 }
 function respawn(fresh) {
   usedOrbs.clear(); padHits.clear();
-  if (practice && !fresh && checkpoints.length) {
+  if (!fresh && checkpoints.length) {
     const cp = checkpoints[checkpoints.length - 1];
     P = CORE.clone(cp.s);
     for (const o of L.objs) if (o.x < cp.s.x - 1 && (o.t === 'orb' || o.t === 'pad')) (o.t === 'orb' ? usedOrbs : padHits).add(o.id);
-    if (!Music.isOn) { Music.start(); Music.isOn = true; }
+    freeze = 0.5;
   } else {
-    P = CORE.newState(); checkpoints = [];
-    attempt++; if (!practice) { totalAttempts++; store.set('attempts', totalAttempts); }
-    Music.start(); Music.isOn = true;
+    P = CORE.newState(); checkpoints = []; nextCp = 0; freeze = 0;
   }
+  attempt++; if (!practice) { totalAttempts++; store.set('attempts', totalAttempts); }
+  if (fresh || !Music.isOn) { Music.start(); Music.isOn = true; }
+  P.prevHeld = held;
   vis.rot = 0; vis.trail = []; mode = 'play'; shake = 0;
 }
 function die() {
   mode = 'dead'; deadTimer = 0.6; shake = 0.35; Music.sfx('die');
-  if (!practice) { Music.stop(); Music.isOn = false; }
+  if (!practice) deaths++;
+  if (!checkpoints.length) { Music.stop(); Music.isOn = false; }
   const cx = P.x + 0.5, cy = P.y + 0.5;
   for (let i = 0; i < 26; i++) {
     const a = Math.random() * Math.PI * 2, sp = 3 + Math.random() * 9;
@@ -466,7 +481,7 @@ function die() {
   const pct = Math.floor(Math.min(1, P.x / L.length) * 100);
   if (practice) {
     // drop checkpoints too close to the crash so a respawn never lands in an unwinnable spot
-    while (checkpoints.length && checkpoints[checkpoints.length - 1].s.x > P.x - SPEED * 0.9) checkpoints.pop();
+    while (checkpoints.length && !checkpoints[checkpoints.length - 1].fixed && checkpoints[checkpoints.length - 1].s.x > P.x - SPEED * 0.9) checkpoints.pop();
   } else if (pct > best) { const first = best === 0; best = pct; store.set('best', best); flash(first ? pct + '%' : 'New best ' + pct + '%'); }
   else flash(pct + '%');
 }
@@ -477,8 +492,8 @@ function win() {
   if (!practice) { best = 100; store.set('best', best); }
   setTimeout(() => {
     $('doneTitle').textContent = practice ? 'Practice cleared' : 'Keep cleared';
-    $('doneInfo').textContent = practice ? 'Every gap is in your hands now. Try a clean run with no checkpoints.'
-      : `You made it through in ${attempt} attempt${attempt === 1 ? '' : 's'}.`;
+    $('doneInfo').textContent = practice ? 'Every gap is in your hands now. Try a normal run next.'
+      : deaths === 0 ? 'Flawless run, not a single crash.' : `You made it through with ${deaths} crash${deaths === 1 ? '' : 'es'}.`;
     show('done'); $('againBtn').focus();
   }, 1100);
 }
@@ -489,7 +504,7 @@ function flash(text) {
 function pause() {
   if (mode !== 'play' && mode !== 'dead') return;
   resumeMode = mode; mode = 'paused'; held = false; Music.suspend();
-  $('pauseInfo').textContent = practice ? 'Practice run, checkpoints on.' : `Attempt ${attempt}. Best run ${best}%.`;
+  $('pauseInfo').textContent = practice ? 'Practice run, checkpoints on.' : `${checkpoints.length ? 'Checkpoint saved. ' : ''}Best run ${best}%.`;
   show('pause'); $('resumeBtn').focus();
 }
 let resumeMode = 'play';
@@ -513,6 +528,11 @@ function stepGame(dt) {
     if (P.events) handleEvents(P.events);
     if (P.dead) { die(); acc = 0; break; }
     if (P.won) { win(); acc = 0; break; }
+    while (nextCp < L.cps.length && P.x >= L.cps[nextCp].x) {
+      const o = L.cps[nextCp++];
+      checkpoints.push({ s: CORE.spawnAt(o), fixed: true, id: o.id });
+      flash('Checkpoint'); Music.sfx('cp'); ring(o.x + 0.5, P.y + 0.5, C.lime);
+    }
     if (practice) {
       const lastX = checkpoints.length ? checkpoints[checkpoints.length - 1].s.x : 0;
       if (P.x - lastX > 16 && ((P.mode === 'cube' && P.grounded) || P.mode === 'ship')) checkpoints.push({ s: CORE.clone(P) });
@@ -657,6 +677,14 @@ function drawObjects(pulse) {
       ctx.fillStyle = 'rgba(255,245,220,.9)'; ctx.beginPath(); ctx.arc(cx - r * 0.25, cy - r * 0.25, r * 0.3, 0, 7); ctx.fill();
       ctx.save(); ctx.translate(cx, cy); ctx.rotate(time * 2.4); ctx.setLineDash([unit * 0.18, unit * 0.12]);
       ctx.strokeStyle = used ? 'rgba(255,181,71,.3)' : C.ember; ctx.lineWidth = unit * 0.06; ctx.beginPath(); ctx.arc(0, 0, unit * 0.58, 0, 7); ctx.stroke(); ctx.restore();
+    } else if (o.t === 'checkpoint') {
+      const got = checkpoints.some(c => c.id === o.id), col = got ? C.lime : C.frost;
+      const x = sx(o.x + 0.5), base = sy(o.mode === 'ship' ? o.y - 0.6 : o.y), top = base - unit * 2.6;
+      if (got) ctx.drawImage(sprites.glowLime, x - unit * 1.1, top - unit * 0.8, unit * 2.2, unit * 2.2);
+      ctx.globalAlpha = got ? 1 : 0.7;
+      ctx.fillStyle = col; ctx.fillRect(x - unit * 0.04, top, unit * 0.08, base - top);
+      ctx.beginPath(); ctx.moveTo(x + unit * 0.04, top); ctx.lineTo(x + unit * 0.85, top + unit * 0.32); ctx.lineTo(x + unit * 0.04, top + unit * 0.64); ctx.closePath();
+      ctx.fill(); ctx.globalAlpha = 1;
     } else if (o.t === 'portal') {
       const col = o.mode === 'ship' ? C.rose : C.lime, glow = o.mode === 'ship' ? sprites.glowRose : sprites.glowLime;
       const cx = sx(o.x + 0.5), cy = sy(o.y + 1.5);
@@ -711,7 +739,8 @@ function drawPlayer() {
   }
   const cx = sx(P.x + 0.5), cy = sy(P.y + 0.5);
   ctx.drawImage(sprites.glowLime, cx - unit * 1.1, cy - unit * 1.1, unit * 2.2, unit * 2.2);
-  ctx.save(); ctx.translate(cx, cy); ctx.rotate(vis.rot);
+  ctx.save(); if (freeze > 0 && Math.floor(time * 14) % 2) ctx.globalAlpha = 0.35;
+  ctx.translate(cx, cy); ctx.rotate(vis.rot);
   if (P.mode === 'cube') drawCube(unit, 0.96);
   else {
     // sled-ship: ember hull with the cube riding in it
@@ -745,7 +774,7 @@ function drawWorldText() {
   if (mode === 'menu') return;
   txt(practice ? 'Practice' : 'Attempt ' + attempt, 9, 5.2, 0.85);
   if (attempt <= 3 || practice) { txt('Tap to jump', 10, 3.2, 0.42); txt('Hold to rise', 217, 4.2, 0.42); txt('Tap the orb mid-air', 168, 4.4, 0.42); txt('Pads launch you', 152, 3.4, 0.42); }
-  if (practice) for (const cp of checkpoints) {
+  if (practice) for (const cp of checkpoints) { if (cp.fixed) continue;
     const x = sx(cp.s.x + 0.5), y = sy(cp.s.y + 0.5); if (x < -unit || x > W + unit) continue;
     ctx.save(); ctx.translate(x, y); ctx.rotate(Math.PI / 4); ctx.fillStyle = C.lime; ctx.globalAlpha = 0.85;
     ctx.fillRect(-unit * 0.2, -unit * 0.2, unit * 0.4, unit * 0.4); ctx.restore(); ctx.globalAlpha = 1;
@@ -766,7 +795,7 @@ let last = performance.now();
 function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.05, (now - last) / 1000); last = now; time += dt;
-  if (mode === 'play') stepGame(dt);
+  if (mode === 'play') { if (freeze > 0) freeze -= dt; else stepGame(dt); }
   else if (mode === 'dead') { deadTimer -= dt; if (deadTimer <= 0) respawn(false); }
   if (mode !== 'paused') updateParticles(dt);
   if (mode === 'menu') { menuCam += 3.2 * dt; camX = menuCam % (L.length - 30); }
@@ -794,7 +823,7 @@ function frame(now) {
   fill.style.width = pct + '%'; pctEl.textContent = pct + '%';
 }
 const fill = $('fill'), pctEl = $('pct'), pauseBtn = $('pauseBtn');
-if (/[?&]debug/.test(location.search)) window.__fk = { warp(x, m) { P.x = x; P.y = 0; P.vy = 0; if (m) P.mode = m; }, hold(v) { held = v; } };
+if (/[?&]debug/.test(location.search)) window.__fk = { warp(x, m) { P.x = x; P.y = 0; P.vy = 0; if (m) P.mode = m; }, hold(v) { held = v; }, get() { return { x: +P.x.toFixed(2), y: +P.y.toFixed(2), m: P.mode, mode, cps: checkpoints.length, freeze: +freeze.toFixed(2), deaths, attempt }; } };
 
 // ---------- input ----------
 function press(e) {
@@ -812,7 +841,7 @@ const JUMP_KEYS = ['Space', 'ArrowUp', 'KeyW', 'Enter'];
 window.addEventListener('keydown', (e) => {
   if (JUMP_KEYS.includes(e.code) && (mode === 'play' || mode === 'dead')) { e.preventDefault(); press(); return; }
   if (e.code === 'Escape' || e.code === 'KeyP') { e.preventDefault(); if (mode === 'paused') resume(); else pause(); }
-  if (e.code === 'KeyR' && (mode === 'play' || mode === 'dead')) { checkpoints = []; respawn(true); }
+  if (e.code === 'KeyR' && (mode === 'play' || mode === 'dead')) { checkpoints = []; deaths = 0; respawn(true); }
 });
 window.addEventListener('keyup', (e) => { if (JUMP_KEYS.includes(e.code)) release(); });
 window.addEventListener('blur', () => { release(); pause(); });
@@ -828,7 +857,7 @@ $('pauseBtn').addEventListener('click', (e) => { e.currentTarget.blur(); if (mod
 $('playBtn').addEventListener('click', () => { Music.unlock(); startRun(false); });
 $('practiceBtn').addEventListener('click', () => { Music.unlock(); startRun(true); });
 $('resumeBtn').addEventListener('click', resume);
-$('restartBtn').addEventListener('click', () => { hideAll(); Music.resume(); checkpoints = []; respawn(true); });
+$('restartBtn').addEventListener('click', () => { hideAll(); Music.resume(); checkpoints = []; deaths = 0; respawn(true); });
 $('quitBtn').addEventListener('click', toMenu);
 $('againBtn').addEventListener('click', () => startRun(practice));
 $('doneMenuBtn').addEventListener('click', toMenu);
