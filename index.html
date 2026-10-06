@@ -129,8 +129,9 @@ button:focus-visible{outline:3px solid var(--frost);outline-offset:3px}
 <script>
 // ===== Core: level + deterministic physics (shared by game and test bot) =====
 const CORE = (() => {
-  const SPEED = 10.4, G = 100, JUMP = 21, PAD_V = 30, ORB_V = 20;
-  const SHIP_UP = 52, SHIP_DOWN = 46, SHIP_MAX = 10, CEIL = 9, DT = 1 / 240;
+  const SPEED = 9.0, G = 86, JUMP = 19.6, PAD_V = 29, ORB_V = 18.5;
+  const BUFFER = 0.13, COYOTE = 0.09, ORB_R = 1.4;
+  const SHIP_UP = 36, SHIP_DOWN = 32, SHIP_MAX = 7.5, CEIL = 9, DT = 1 / 240;
 
   function buildLevel() {
     const objs = []; let id = 0;
@@ -143,37 +144,34 @@ const CORE = (() => {
     const O = (x, y) => add({ t: 'orb', x, y, w: 1, h: 1 });
     const GATE = (x, mode, y = 0) => add({ t: 'portal', x, y, w: 1, h: 3, mode });
 
-    // A — warm up
-    S(16); S(26); SR(34, 2);
-    B(42, 0, 4, 1); S(50);
-    B(56, 0, 3, 1); B(59, 0, 3, 2); B(62, 0, 4, 3);
-    SR(73, 2); S(80);
-    B(84, 0, 2, 1); SR(86, 2);
-    B(94, 0, 8, 1); S(98, 1);
-    S(107);
-    S(116); S(121); S(126);
-    B(132, 0, 3, 1); SR(135, 3);
-    // B — pads and orbs
-    P(150); B(154, 0, 3, 3); SR(157, 4);
-    SR(170, 7); O(172, 2);
-    P(186); SR(188, 3);
-    SR(200, 9); O(202, 2); O(206, 2);
-    // C — ship
-    GATE(222, 'ship', 0);
-    B(236, 0, 2, 4); B(246, 5, 2, 4); B(256, 0, 2, 5); B(266, 4, 2, 5);
-    B(276, 0, 2, 3); B(276, 6, 2, 3);
-    B(286, 0, 2, 2); B(286, 5, 2, 4);
-    B(296, 0, 16, 2); B(296, 7, 16, 2);
-    for (let x = 296; x < 312; x++) { S(x, 2); SD(x, 6); }
-    B(320, 0, 2, 4);
+    // A — warm up: single spikes with lots of room
+    S(20); S(32); S(44);
+    B(54, 0, 4, 1); S(66);
+    B(74, 0, 4, 1); B(80, 0, 4, 1);
+    S(91); S(101);
+    SR(110, 2); S(122);
+    B(130, 0, 6, 1);
+    SR(144, 2);
+    // B — pads and orbs, one at a time
+    P(156); SR(158, 3);
+    SR(172, 5); O(173, 2);
+    SR(188, 2); S(198);
+    P(208); SR(210, 3);
+    // C — ship, wide lanes
+    GATE(224, 'ship', 0);
+    B(240, 0, 2, 3); B(252, 6, 2, 3); B(264, 0, 2, 3); B(276, 6, 2, 3);
+    B(288, 0, 2, 2); B(288, 7, 2, 2);
+    B(300, 0, 12, 2); B(300, 7, 12, 2);
+    for (let x = 302; x < 312; x += 3) S(x, 2);
+    B(320, 0, 2, 3);
     GATE(330, 'cube', 3);
-    // D — finale
-    S(344); SR(352, 2); SR(360, 3);
-    B(370, 0, 6, 1); S(373, 1);
-    B(383, 0, 3, 2); SR(386, 3); B(389, 0, 3, 2);
-    SR(404, 11); O(407, 2); O(411, 2);
-    P(426); B(430, 2, 7, 1); SR(428, 12);
-    S(447); SR(456, 2); B(464, 0, 4, 1); S(470);
+    // D — finale: a little more going on
+    S(344); SR(354, 2); S(364);
+    B(372, 0, 6, 1); SR(382, 2);
+    B(392, 0, 3, 2); SR(395, 2); B(397, 0, 3, 2);
+    SR(408, 6); O(410, 2);
+    P(424); SR(426, 3);
+    SR(440, 2); S(452); B(460, 0, 4, 1); SR(468, 2);
 
     objs.sort((a, b) => a.x - b.x);
     const length = 482;
@@ -192,7 +190,7 @@ const CORE = (() => {
 
   function newState() {
     return { x: 0, y: 0, vy: 0, mode: 'cube', grounded: true, dead: false, won: false,
-      lastOrb: -1, lastPad: -1, events: 0 };
+      lastOrb: -1, lastPad: -1, events: 0, buf: 0, coy: 0, prevHeld: false };
   }
   function clone(s) { return Object.assign({}, s); }
 
@@ -202,8 +200,11 @@ const CORE = (() => {
     s.events = 0;
     const prevX = s.x;
     s.x += SPEED * DT;
+    if (held && !s.prevHeld) s.buf = BUFFER; else if (s.buf > 0) s.buf -= DT;
+    s.prevHeld = held;
+    const want = held || s.buf > 0;
     if (s.mode === 'cube') {
-      if (s.grounded && held) { s.vy = JUMP; s.grounded = false; s.events |= 1; }
+      if (want && (s.grounded || s.coy > 0) && s.vy <= 0.01) { s.vy = JUMP; s.grounded = false; s.coy = 0; s.buf = 0; s.events |= 1; }
       s.vy -= G * DT; if (s.vy < -32) s.vy = -32;
     } else {
       s.vy += (held ? SHIP_UP : -SHIP_DOWN) * DT;
@@ -229,25 +230,26 @@ const CORE = (() => {
       s.dead = true; s.events |= 64; return;
     }
     if (s.grounded && !wasGrounded) s.events |= 2;
+    if (s.grounded) s.coy = COYOTE; else if (s.coy > 0) s.coy -= DT;
     // pass 2: hazards and triggers
     const shipBox = s.mode === 'ship';
     const hx0 = s.x + 0.08, hx1 = s.x + 0.92;
     const hy0 = s.y + (shipBox ? 0.18 : 0.06), hy1 = s.y + (shipBox ? 0.82 : 0.94);
     for (const col of cols) for (const o of col) {
       if (o.t === 'spike') {
-        const sx0 = o.x + 0.36, sx1 = o.x + 0.64;
-        const sy0 = o.down ? o.y + 0.45 : o.y + 0.08, sy1 = o.down ? o.y + 0.92 : o.y + 0.55;
+        const sx0 = o.x + 0.39, sx1 = o.x + 0.61;
+        const sy0 = o.down ? o.y + 0.5 : o.y + 0.08, sy1 = o.down ? o.y + 0.92 : o.y + 0.5;
         if (hx1 > sx0 && hx0 < sx1 && hy1 > sy0 && hy0 < sy1) { s.dead = true; s.events |= 64; return; }
       } else if (o.t === 'pad') {
         if (s.lastPad !== o.id && s.x + 0.9 > o.x && s.x + 0.1 < o.x + 1 && s.y <= o.y + 0.35 && s.y + 1 > o.y) {
-          s.lastPad = o.id; s.vy = s.mode === 'cube' ? PAD_V : 8; s.grounded = false; s.events |= 8;
+          s.lastPad = o.id; s.vy = s.mode === 'cube' ? PAD_V : 6; s.coy = 0; s.grounded = false; s.events |= 8;
         }
       } else if (o.t === 'orb') {
-        if (held && !s.grounded && s.lastOrb !== o.id) {
+        if (want && !s.grounded && s.lastOrb !== o.id) {
           const dx = (s.x + 0.5) - (o.x + 0.5), dy = (s.y + 0.5) - (o.y + 0.5);
-          if (dx * dx + dy * dy < 1.1 * 1.1) {
+          if (dx * dx + dy * dy < ORB_R * ORB_R) {
             s.lastOrb = o.id;
-            if (s.mode === 'cube') s.vy = ORB_V; else s.vy = 7;
+            if (s.mode === 'cube') s.vy = ORB_V; else s.vy = 6; s.buf = 0; s.coy = 0;
             s.events |= 4;
           }
         }
@@ -264,6 +266,8 @@ const CORE = (() => {
 
   return { SPEED, G, JUMP, CEIL, DT, buildLevel, newState, clone, step };
 })();
+
+
 
 
 </script>
@@ -451,7 +455,7 @@ function respawn(fresh) {
   vis.rot = 0; vis.trail = []; mode = 'play'; shake = 0;
 }
 function die() {
-  mode = 'dead'; deadTimer = 0.85; shake = 0.35; Music.sfx('die');
+  mode = 'dead'; deadTimer = 0.6; shake = 0.35; Music.sfx('die');
   if (!practice) { Music.stop(); Music.isOn = false; }
   const cx = P.x + 0.5, cy = P.y + 0.5;
   for (let i = 0; i < 26; i++) {
@@ -517,7 +521,7 @@ function stepGame(dt) {
   stepGame.acc = acc;
   // visuals
   if (P.mode === 'cube') {
-    if (!P.grounded) vis.rot += 7.4 * dt;
+    if (!P.grounded) vis.rot += 6.9 * dt;
     else { const q = Math.PI / 2, tgt = Math.round(vis.rot / q) * q; vis.rot += (tgt - vis.rot) * Math.min(1, dt * 22); }
   } else {
     const tgt = -Math.atan2(P.vy, SPEED) * 0.9; vis.rot += (tgt - vis.rot) * Math.min(1, dt * 14);
@@ -740,7 +744,7 @@ function drawWorldText() {
   };
   if (mode === 'menu') return;
   txt(practice ? 'Practice' : 'Attempt ' + attempt, 9, 5.2, 0.85);
-  if (attempt <= 3 || practice) { txt('Tap to jump', 10, 3.2, 0.42); txt('Hold to rise', 214, 4.2, 0.42); txt('Tap the orbs mid-air', 165, 4.4, 0.42); }
+  if (attempt <= 3 || practice) { txt('Tap to jump', 10, 3.2, 0.42); txt('Hold to rise', 217, 4.2, 0.42); txt('Tap the orb mid-air', 168, 4.4, 0.42); txt('Pads launch you', 152, 3.4, 0.42); }
   if (practice) for (const cp of checkpoints) {
     const x = sx(cp.s.x + 0.5), y = sy(cp.s.y + 0.5); if (x < -unit || x > W + unit) continue;
     ctx.save(); ctx.translate(x, y); ctx.rotate(Math.PI / 4); ctx.fillStyle = C.lime; ctx.globalAlpha = 0.85;
